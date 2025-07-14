@@ -30,12 +30,11 @@ A Discord bot that runs Lua code safely using Docker and Lupa.
 
 ## Example
 
-```
-%```lua
+```lua
+%```
 print("Hello, World!")
 print(math.pi)
-print(string.upper("lua"))
-%```
+print(string.upper("lua"))```
 ```
 
 ## Security
@@ -61,7 +60,7 @@ print(string.upper("lua"))
 ## Examples
 
 ```lua
-%'
+%```
 -- Math calculations
 print(math.sqrt(16))
 print(math.pi)
@@ -76,6 +75,5 @@ local t = {1, 2, 3, 4, 5}
 table.insert(t, 6)
 for i, v in ipairs(t) do
     print(i, v)
-end
-'%
+end```
 ```
