@@ -1,51 +1,47 @@
 # Lua Discord Bot
 
-A Discord bot that safely executes untrusted Lua code using Docker sandboxing and Lupa.
+A Discord bot that runs Lua code safely using Docker and Lupa.
 
 ## Features
 
-- **Safe Execution**: Runs Lua code in a Docker container with limited resources
-- **Sandboxed Environment**: Only allows safe Lua functions (no file I/O, network, or system access)
-- **Timeout Protection**: 3-second execution limit
-- **Memory Limits**: 128MB memory constraint
-- **Easy Usage**: Wrap code in `%'` and `'%` or use `!lua` command
+- Runs Lua code in a sandbox (no file/network/system access)
+- 5 second timeout, 128MB memory limit
+- Supports most standard Lua functions: math, string, table, coroutine, utf8, print
 
 ## Setup
 
-1. Install dependencies:
-   ```bash
+1. Install requirements:
+   ```
    pip install -r requirements.txt
    ```
-
-2. Create `.env` file with your Discord bot token:
+2. Add your Discord bot token to `.env`:
    ```
-   DISCORD_BOT_TOKEN=your_bot_token_here
+   DISCORD_BOT_TOKEN=your_token_here
    ```
-
-3. Build Docker image:
-   ```bash
-   docker build -t lua-bot .
+3. Start the bot:
    ```
-
-4. Run the bot:
-   ```bash
    python bot.py
    ```
 
 ## Usage
 
-### In Discord Messages
-Wrap Lua code in `%'` and `'%`:
+- Inline: Wrap code in `%```lua ... ````
+- Command: `~ print("Hello, World!")`
+
+## Example
+
 ```
-%'print("Hello, World!")'%
+%```lua
+print("Hello, World!")
+print(math.pi)
+print(string.upper("lua"))
+%```
 ```
 
-### Using Commands
-```
-!lua print("Hello, World!")
-!help_lua
-```
+## Security
 
+- Docker sandbox: no network, no files, limited memory/CPU, short timeout
+- Only safe Lua libraries are available
 ## Available Lua Functions
 
 - **Math**: `math.abs`, `math.sin`, `math.cos`, etc.
@@ -59,7 +55,7 @@ Wrap Lua code in `%'` and `'%`:
 - No network access
 - No file system access
 - Limited memory and CPU
-- Execution timeout
+- Execution timeout = 5s
 - Sandboxed Lua environment
 
 ## Examples
