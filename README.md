@@ -26,7 +26,7 @@ A Discord bot that runs Lua code safely using Docker and Lupa.
 ## Usage
 
 - Inline: Wrap code in  ` %```<code> ``` `
-- Command: `~~ print("Hello, World!")`
+- Command: `~~ <code>`
 
 ## Example
 
