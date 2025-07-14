@@ -7,5 +7,5 @@ env/
 venv/
 .venv/
 test_*
-.vscode
+.vscode/
 .pytest*
