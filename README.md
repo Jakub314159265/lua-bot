@@ -77,3 +77,6 @@ for i, v in ipairs(t) do
     print(i, v)
 end```
 ```
+
+## Invite\
+[here](https://discord.com/oauth2/authorize?client_id=1394401891538046976&permissions=551903422528&integration_type=0&scope=bot)
