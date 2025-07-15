@@ -1,14 +1,15 @@
 import sys
 from lupa import LuaRuntime
 
+
 def execute_lua_code(lua_code):
     """Execute Lua code in a secure, restricted environment."""
     result = {"output": "", "error": None}
-    
+
     try:
         # Create Lua runtime
         lua = LuaRuntime(unpack_returned_tuples=True)
-        
+
         # Set up secure Lua environment with extensive restrictions
         lua.execute("""
             -- Clear all dangerous globals
@@ -70,42 +71,42 @@ def execute_lua_code(lua_code):
                 return table.concat(outputs, '\\n')
             end
         """)
-        
+
         # Execute user code
         lua_result = lua.execute(lua_code)
-        
+
         # Get captured output
         output = lua.eval("get_output()")
         if output and output.strip():
             result["output"] = output
         elif lua_result is not None:
             result["output"] = str(lua_result)
-            
+
     except Exception as e:
         result["error"] = str(e)
-    
+
     return result
+
 
 def main():
     try:
         lua_code = sys.stdin.read().strip()
         if not lua_code:
-            print("No Lua code provided")
+            print("No Lua code provided", file=sys.stderr)
             return
-        
+
         result = execute_lua_code(lua_code)
-        
+
         if result["error"]:
-            print(f"Error: {result['error']}")
+            print(result['error'], file=sys.stderr)
         elif result["output"]:
             print(result["output"])
-        else:
-            print("No output")
-            
+
     except KeyboardInterrupt:
-        print("Interrupted")
+        print("Interrupted", file=sys.stderr)
     except Exception as e:
-        print(f"Unexpected error: {e}")
+        print(f"Unexpected error: {e}", file=sys.stderr)
+
 
 if __name__ == "__main__":
     main()
