@@ -127,7 +127,7 @@ async def execute_lua_code(message, lua_code, existing_response=None):
     try:
         podman_cmd = [
             'podman', 'run', '--rm', '-i',
-            '--memory=64m', '--memory-swap=96m', '--cpus=0.25',
+            '--memory=64m', '--memory-swap=96m', '--cpus=0.64',
             '--network=none', '--user=botuser', '--read-only',
             'lua-bot'
         ]
