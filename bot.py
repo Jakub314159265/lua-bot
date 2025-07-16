@@ -15,11 +15,14 @@ message_responses = {}
 CONTAINER_NAME = "lua-bot-p"
 IMAGE_NAME = "lua-bot-p-img"
 
+TIMEOUT = 10
+
+# todo: define colors as constants
 
 @bot.event
 async def on_ready():
     print(f'{bot.user} has connected!')
-    await setup_persistent_container()
+    await setup_container()
 
 
 @bot.event
@@ -30,7 +33,7 @@ async def on_message(message):
     # handle ~~ so no 'no command' errors will show
     if message.content.strip().startswith('~~'):
         await process_message(message)
-        return  # don't process as command
+        return  # don't process as command because weird discord shit happens otherwise
 
     await process_message(message)
     await bot.process_commands(message)
@@ -103,7 +106,7 @@ async def process_message(message, existing_response=None):
                 response = await execute_lua_code(message, lua_code, existing_response)
                 if response:
                     message_responses[message.id] = response.id
-                break
+                break  # this break is here so if more than one code is in message only first one is run, delete it if you want
     elif existing_response:
         await delete_response(message.id, message.channel)
 
@@ -118,62 +121,62 @@ async def create_embed(title, description, color, language="lua"):
 
 
 async def create_output_file(content, filename="output.txt"):
-    """Create a Discord File object with the given content"""
+    """Create a Discordd message with file"""
     import io
     file_content = io.BytesIO(content.encode('utf-8'))
     return discord.File(file_content, filename=filename)
 
 
-async def setup_persistent_container():
-    """Set up persistent container for Lua execution"""
+async def run_podman_command(cmd, ignore_errors=False):
+    """Run a podman command and return (returncode, stdout, stderr)"""  # some black magic happens here
     try:
-        # ensure image exists
-        await ensure_podman_image()
-
-        # Remove existing container if it exists
-        await cleanup_container()
-
-        # Create persistent container
-        create_cmd = [
-            'podman', 'create', '--name', CONTAINER_NAME,
-            '--memory=64m', '--memory-swap=96m', '--cpus=0.64',
-            '--network=none', '--user=botuser', '--read-only',
-            '-i', 'lua-bot'
-        ]
-
         process = await asyncio.create_subprocess_exec(
-            *create_cmd,
+            *cmd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        await process.communicate()
+        stdout, stderr = await process.communicate()
+        return process.returncode, stdout.decode().strip(), stderr.decode().strip()
+    except Exception as e:
+        if not ignore_errors:
+            print(f"Error running command {' '.join(cmd)}: {e}")
+        return 1, "", str(e)
 
-        if process.returncode == 0:
-            print(f"Created persistent container: {CONTAINER_NAME}")
+
+async def setup_container():
+    """Set up container for Lua execution"""
+    try:
+        await ensure_podman_image()
+        await cleanup_container()
+
+        create_cmd = [
+            'podman', 'create', '--name', CONTAINER_NAME,
+            '--memory=512m', '--memory-swap=596m', '--cpus=0.75',  # delete this line if on rpi
+            '--network=none', '--user=botuser', '--read-only',
+            '-i', IMAGE_NAME
+        ]
+
+        returncode, _, stderr = await run_podman_command(create_cmd)
+        if returncode == 0:
+            print(f"Created container: {CONTAINER_NAME}")
         else:
             print(f"Failed to create container: {CONTAINER_NAME}")
+            print(f"Error: {stderr}")
 
     except Exception as e:
-        print(f"Error setting up persistent container: {e}")
+        print(f"Error setting up container: {e}")
 
 
 async def cleanup_container():
-    """Clean up persistent container"""
-    try:
-        # Stop and remove container
-        for cmd in [['podman', 'stop', CONTAINER_NAME], ['podman', 'rm', CONTAINER_NAME]]:
-            process = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            await process.communicate()
-    except Exception:
-        pass  # ignore cleanup errors, i dont care what they say lol
+    """Clean up container"""
+    for cmd in [['podman', 'stop', CONTAINER_NAME], ['podman', 'rm', CONTAINER_NAME]]:
+        returncode, _, stderr = await run_podman_command(cmd, ignore_errors=True)
+        if returncode != 0 and "no such container" not in stderr.lower():
+            print(f"Cleanup warning for {' '.join(cmd)}: {stderr}")
 
 
 async def execute_lua_code(message, lua_code, existing_response=None):
-    """Execute Lua code using persistent Podman container"""
+    """Execute Lua code using Podman container"""
     try:
         exec_cmd = ['podman', 'exec', '-i',
                     CONTAINER_NAME, 'python', 'run_lua.py']
@@ -188,7 +191,7 @@ async def execute_lua_code(message, lua_code, existing_response=None):
         try:
             stdout, stderr = await asyncio.wait_for(
                 process.communicate(input=lua_code.encode()),
-                timeout=5.0
+                timeout=TIMEOUT
             )
         except asyncio.TimeoutError:
             try:
@@ -202,14 +205,17 @@ async def execute_lua_code(message, lua_code, existing_response=None):
         output = stdout.decode().strip() if stdout else ""
         error = stderr.decode().strip() if stderr else ""
 
+        # black magic ends here
+
         if error:
-            # make lua errors more readable
+            # make lua errors more readable, in exchange this code is very unreadable
             clean_error = []
             for line in error.split('\n'):
                 if 'stdin:' in line:
                     parts = line.split(':', 2)
                     if len(parts) >= 3:
                         clean_error.append(
+                            # i made it print 'Line: ' becayse my friends dont understand 'stdin: ' smh
                             f"line {parts[1]}: {parts[2].strip()}")
                     elif line.strip():
                         clean_error.append(line)
@@ -219,6 +225,7 @@ async def execute_lua_code(message, lua_code, existing_response=None):
             final_error = '\n'.join(clean_error) if clean_error else error
             error_lines = final_error.count('\n') + 1 if final_error else 0
 
+            # i am deeply sorry if someone needs to read this code :u
             if len(final_error) > 1024 or error_lines > 64:
                 embed = await create_embed("Lua Error", "Error output too long, see attached file", 0xFF8C00, "")
                 file = await create_output_file(final_error, "error.txt")
@@ -273,29 +280,19 @@ async def send_or_edit_response(message, embed, existing_response=None, file=Non
 async def ensure_podman_image():
     """Build Podman image if it doesn't exist"""
     try:
-        result = await asyncio.create_subprocess_exec(
-            'podman', 'images', '-q', IMAGE_NAME,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, _ = await result.communicate()
+        returncode, stdout, _ = await run_podman_command(['podman', 'images', '-q', IMAGE_NAME])
 
-        if not stdout.strip():
+        if returncode == 0 and not stdout:
             print("Building Podman image...")
-            build_process = await asyncio.create_subprocess_exec(
-                'podman', 'build', '-t', IMAGE_NAME, '.',
-                cwd=os.path.dirname(__file__),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+            build_returncode, _, build_stderr = await run_podman_command(
+                ['podman', 'build', '-t', IMAGE_NAME, '.'],
             )
 
-            _, build_stderr = await build_process.communicate()
-
-            if build_process.returncode == 0:
+            if build_returncode == 0:
                 print("Podman image built successfully!")
             else:
-                print(f"Podman build failed: {build_stderr.decode()}")
-        else:
+                print(f"Podman build failed: {build_stderr}")
+        elif returncode == 0:
             print("Podman image found")
 
     except FileNotFoundError:
@@ -306,7 +303,7 @@ async def ensure_podman_image():
 
 @bot.command(name='help')
 async def help_command(ctx):
-    """Show help information"""
+    """Show help information"""  # very pwetty format isnt it :3
     embed = discord.Embed(
         title="Lua Bot Help",
         description="Execute Lua code safely in Discord!",
@@ -344,7 +341,7 @@ async def on_command_error(ctx, error):
     print(f"Command error: {error}")
 
 
-# run the code :3
+# run the code >w<
 if __name__ == "__main__":
     token = os.getenv('DISCORD_BOT_TOKEN')
     if not token:
