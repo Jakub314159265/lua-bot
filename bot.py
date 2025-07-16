@@ -13,6 +13,7 @@ bot = commands.Bot(command_prefix='~', intents=intents, help_command=None)
 
 message_responses = {}
 CONTAINER_NAME = "lua-bot-p"
+IMAGE_NAME = "lua-bot-p-img"
 
 
 @bot.event
@@ -273,7 +274,7 @@ async def ensure_podman_image():
     """Build Podman image if it doesn't exist"""
     try:
         result = await asyncio.create_subprocess_exec(
-            'podman', 'images', '-q', 'lua-bot',
+            'podman', 'images', '-q', IMAGE_NAME,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
@@ -282,7 +283,7 @@ async def ensure_podman_image():
         if not stdout.strip():
             print("Building Podman image...")
             build_process = await asyncio.create_subprocess_exec(
-                'podman', 'build', '-t', 'lua-bot', '.',
+                'podman', 'build', '-t', IMAGE_NAME, '.',
                 cwd=os.path.dirname(__file__),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
