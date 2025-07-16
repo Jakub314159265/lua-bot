@@ -17,7 +17,7 @@ message_responses = {}
 @bot.event
 async def on_ready():
     print(f'{bot.user} has connected to Discord!')
-    await ensure_docker_image()
+    await ensure_podman_image()
 
 
 @bot.event
@@ -123,17 +123,17 @@ async def create_output_file(content, filename="output.txt"):
 
 
 async def execute_lua_code(message, lua_code, existing_response=None):
-    """Execute Lua code using Docker"""
+    """Execute Lua code using Podman"""
     try:
-        docker_cmd = [
-            'docker', 'run', '--rm', '-i',
+        podman_cmd = [
+            'podman', 'run', '--rm', '-i',
             '--memory=64m', '--memory-swap=96m', '--cpus=0.25',
             '--network=none', '--user=botuser', '--read-only',
             'lua-bot'
         ]
 
         process = await asyncio.create_subprocess_exec(
-            *docker_cmd,
+            *podman_cmd,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
@@ -161,19 +161,19 @@ async def execute_lua_code(message, lua_code, existing_response=None):
             clean_error = []
             for line in error.split('\n'):
                 if 'stdin:' in line:
-                    parts = line.split(':', 3)
-                    if len(parts) >= 4:
+                    parts = line.split(':', 2)
+                    if len(parts) >= 3:
                         clean_error.append(
-                            f"Line {parts[1]}: {parts[3].strip()}")
-                    else:
+                            f"line {parts[1]}: {parts[2].strip()}")
+                    elif line.strip():
                         clean_error.append(line)
-                elif line.strip() and not line.startswith('lua:'):
+                elif line.strip():
                     clean_error.append(line)
 
             final_error = '\n'.join(clean_error) if clean_error else error
             error_lines = final_error.count('\n') + 1 if final_error else 0
 
-            if len(final_error) > 512 or error_lines > 32:
+            if len(final_error) > 1024 or error_lines > 64:
                 embed = await create_embed("Lua Error", "Error output too long, see attached file", 0xFF8C00, "")
                 file = await create_output_file(final_error, "error.txt")
                 return await send_or_edit_response(message, embed, existing_response, file)
@@ -183,7 +183,7 @@ async def execute_lua_code(message, lua_code, existing_response=None):
         elif output:
             output_lines = output.count('\n') + 1 if output else 0
 
-            if len(output) > 512 or output_lines > 32:
+            if len(output) > 1024 or output_lines > 64:
                 embed = await create_embed("Lua Output", "Output too long, see attached file", 0x44FF44, "")
                 file = await create_output_file(output, "output.txt")
                 return await send_or_edit_response(message, embed, existing_response, file)
@@ -196,7 +196,7 @@ async def execute_lua_code(message, lua_code, existing_response=None):
 
     except FileNotFoundError:
         embed = discord.Embed(
-            title="Docker Error", description="Docker not found. Please install Docker.", color=0xFF4444)
+            title="Podman Error", description="Podman not found. Please install Podman.", color=0xFF4444)
         return await send_or_edit_response(message, embed, existing_response)
     except Exception as e:
         embed = discord.Embed(
@@ -224,20 +224,20 @@ async def send_or_edit_response(message, embed, existing_response=None, file=Non
             return await message.reply(embed=embed)
 
 
-async def ensure_docker_image():
-    """Build Docker image if it doesn't exist"""
+async def ensure_podman_image():
+    """Build Podman image if it doesn't exist"""
     try:
         result = await asyncio.create_subprocess_exec(
-            'docker', 'images', '-q', 'lua-bot',
+            'podman', 'images', '-q', 'lua-bot',
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
         stdout, _ = await result.communicate()
 
         if not stdout.strip():
-            print("Building Docker image...")
+            print("Building Podman image...")
             build_process = await asyncio.create_subprocess_exec(
-                'docker', 'build', '-t', 'lua-bot', '.',
+                'podman', 'build', '-t', 'lua-bot', '.',
                 cwd=os.path.dirname(__file__),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
@@ -246,16 +246,16 @@ async def ensure_docker_image():
             _, build_stderr = await build_process.communicate()
 
             if build_process.returncode == 0:
-                print("Docker image built successfully!")
+                print("Podman image built successfully!")
             else:
-                print(f"Docker build failed: {build_stderr.decode()}")
+                print(f"Podman build failed: {build_stderr.decode()}")
         else:
-            print("Docker image found")
+            print("Podman image found")
 
     except FileNotFoundError:
-        print("Docker not found. Please install Docker to use this bot.")
+        print("Podman not found. Please install Podman to use this bot.")
     except Exception as e:
-        print(f"Error with Docker setup: {e}")
+        print(f"Error with Podman setup: {e}")
 
 
 @bot.command(name='help')

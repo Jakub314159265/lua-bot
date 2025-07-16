@@ -1,11 +1,11 @@
 # Lua Discord Bot
 
-A Discord bot that runs Lua code safely using Docker and Lupa.
+A Discord bot that runs Lua code safely using Podman and Lupa.
 
 ## Features
 
 - Runs Lua code in a sandbox (no file/network/system access)
-- 5 second timeout, 128MB memory limit
+- 5 second timeout, 64MB memory limit
 - Supports most standard Lua functions: math, string, table, coroutine, utf8, print
 
 ## Setup
@@ -18,7 +18,19 @@ A Discord bot that runs Lua code safely using Docker and Lupa.
    ```
    DISCORD_BOT_TOKEN=your_token_here
    ```
-3. Start the bot:
+3. Install Podman (if not yet installed):
+   ```bash
+   # On Ubuntu/Debian
+   sudo apt install podman
+   
+   # On Fedora/RHEL
+   sudo dnf install podman
+   
+   # On Arch Linux
+   sudo pacman -S podman
+   ```
+
+4. Start the bot:
    ```
    python bot.py
    ```
@@ -37,10 +49,6 @@ print(math.pi)
 print(string.upper("lua"))```
 ```
 
-## Security
-
-- Docker sandbox: no network, no files, limited memory/CPU, short timeout
-- Only safe Lua libraries are available
 ## Available Lua Functions
 
 - **Math**: `math.abs`, `math.sin`, `math.cos`, etc.
@@ -50,12 +58,12 @@ print(string.upper("lua"))```
 
 ## Security
 
-- Runs in isolated Docker container
+- Runs in isolated Podman container
 - No network access
 - No file system access
-- Limited memory and CPU
-- Execution timeout = 5s
-- Sandboxed Lua environment
+- Limited memory (64MB) and CPU (0.25 cores)
+- Execution timeout = 5 seconds
+- Sandboxed Lua environment with restricted functions
 
 ## Examples
 
@@ -77,6 +85,14 @@ for i, v in ipairs(t) do
     print(i, v)
 end```
 ```
+
+## Technical Details
+
+- Built on Python 3.12 slim image
+- Uses Lupa for Python-Lua integration
+- Runs as non-root user (UID 1000) for security
+- Container is read-only with no network access
+- Memory and CPU limits enforced by Podman
 
 ## Invite
 [here](https://discord.com/oauth2/authorize?client_id=1394401891538046976&permissions=551903422528&integration_type=0&scope=bot)

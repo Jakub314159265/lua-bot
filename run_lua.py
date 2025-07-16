@@ -77,13 +77,14 @@ def execute_lua_code(lua_code):
 
         # Get captured output
         output = lua.eval("get_output()")
-        if output and output.strip():
+        if output:
             result["output"] = output
         elif lua_result is not None:
             result["output"] = str(lua_result)
 
     except Exception as e:
-        result["error"] = str(e)
+        error_msg = str(e).replace('[string "<python>"]', 'stdin')
+        result["error"] = error_msg
 
     return result
 
