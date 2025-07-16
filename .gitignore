@@ -9,4 +9,4 @@ venv/
 test_*
 .vscode/
 .pytest*
-lua-bot.tar
+*.tar
