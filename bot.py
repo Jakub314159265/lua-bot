@@ -241,7 +241,7 @@ async def execute_lua_code(message, lua_code, existing_response=None):
                 await process.wait()
             except:
                 pass
-            embed = await create_embed("Execution Timeout", "Code execution exceeded 5 second limit", 0xFF4444, "")
+            embed = await create_embed("Execution Timeout", f"Code execution exceeded {TIMEOUT} second limit", 0xFF4444, "")
             return await send_or_edit_response(message, embed, existing_response)
 
         output = stdout.decode().strip() if stdout else ""
@@ -366,7 +366,7 @@ async def help_command(ctx):
 
     embed.add_field(
         name="Security Limits",
-        value="• 5 second timeout\n• 64MB memory limit\n• No file/network access\n• Max 1800 output characters",
+        value="• {TIMEOUT} second timeout\n• 64MB memory limit\n• No file/network access\n• Max 1800 output characters",
         inline=False
     )
 
