@@ -42,7 +42,7 @@ def execute_lua_code(lua_code):
                 running = coroutine.running,
                 wrap = coroutine.wrap,
                 status = coroutine.status,
-                yield = coroutine.yield
+                yield = coroutine.yield,
                 close = coroutine.close
             }
             
