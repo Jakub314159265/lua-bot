@@ -15,7 +15,6 @@ RUN groupadd -g 1000 botuser && \
 WORKDIR /home/botuser/
 COPY --chown=botuser:botuser run_lua.py .
 
-# Ensure proper permissions
 RUN chmod 755 /home/botuser/run_lua.py
 
 USER botuser

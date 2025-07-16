@@ -37,16 +37,15 @@ A Discord bot that runs Lua code safely using Podman and Lupa.
 
 ## Usage
 
-- Inline: Wrap code in  ` %```<code> ``` `
-- Command: `~~ <code>`
+- Wrap code in  ` %```<code> ``` `
+- or: `~~ <code>`
 
-## Example
+## Example of `~~` usage
 
 ```lua
-%```
-print("Hello, World!")
+~~print("Hello, World!")
 print(math.pi)
-print(string.upper("lua"))```
+print(string.upper("lua"))
 ```
 
 ## Available Lua Functions
@@ -65,7 +64,7 @@ print(string.upper("lua"))```
 - Execution timeout = 5 seconds
 - Sandboxed Lua environment with restricted functions
 
-## Examples
+## Example
 
 ```lua
 %```

@@ -12,12 +12,13 @@ intents.message_content = True
 bot = commands.Bot(command_prefix='~', intents=intents, help_command=None)
 
 message_responses = {}
+CONTAINER_NAME = "lua-bot-p"
 
 
 @bot.event
 async def on_ready():
-    print(f'{bot.user} has connected to Discord!')
-    await ensure_podman_image()
+    print(f'{bot.user} has connected!')
+    await setup_persistent_container()
 
 
 @bot.event
@@ -25,10 +26,10 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    # Handle ~~ prefix before processing commands to avoid CommandNotFound errors
+    # handle ~~ so no 'no command' errors will show
     if message.content.strip().startswith('~~'):
         await process_message(message)
-        return  # Don't process as command
+        return  # don't process as command
 
     await process_message(message)
     await bot.process_commands(message)
@@ -74,7 +75,7 @@ async def delete_response(message_id, channel):
 
 async def process_message(message, existing_response=None):
     """Process message for Lua code execution"""
-    # Handle ~~ prefix
+    # handle ~~ prefix
     if message.content.strip().startswith('~~'):
         code = message.content.strip()[2:].lstrip()
         if code:
@@ -85,11 +86,11 @@ async def process_message(message, existing_response=None):
             await delete_response(message.id, message.channel)
         return
 
-    # Handle ```code``` blocks (with optional 'lua' keyword)
+    # handle ```code``` blocks (with or without lua)
     matches = re.findall(r"%```(?:lua\s*)?(.*?)```",
                          message.content, re.DOTALL | re.IGNORECASE)
 
-    # Handle %`code` blocks (with optional 'lua' keyword)
+    # handle %`code` blocks (with or without lua)
     if not matches:
         matches = re.findall(r"%`(?:lua\s*)?(.*?)`",
                              message.content, re.DOTALL | re.IGNORECASE)
@@ -101,7 +102,7 @@ async def process_message(message, existing_response=None):
                 response = await execute_lua_code(message, lua_code, existing_response)
                 if response:
                     message_responses[message.id] = response.id
-                break  # Only execute first code block
+                break
     elif existing_response:
         await delete_response(message.id, message.channel)
 
@@ -122,18 +123,61 @@ async def create_output_file(content, filename="output.txt"):
     return discord.File(file_content, filename=filename)
 
 
-async def execute_lua_code(message, lua_code, existing_response=None):
-    """Execute Lua code using Podman"""
+async def setup_persistent_container():
+    """Set up persistent container for Lua execution"""
     try:
-        podman_cmd = [
-            'podman', 'run', '--rm', '-i',
+        # ensure image exists
+        await ensure_podman_image()
+
+        # Remove existing container if it exists
+        await cleanup_container()
+
+        # Create persistent container
+        create_cmd = [
+            'podman', 'create', '--name', CONTAINER_NAME,
             '--memory=64m', '--memory-swap=96m', '--cpus=0.64',
             '--network=none', '--user=botuser', '--read-only',
-            'lua-bot'
+            '-i', 'lua-bot'
         ]
 
         process = await asyncio.create_subprocess_exec(
-            *podman_cmd,
+            *create_cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        await process.communicate()
+
+        if process.returncode == 0:
+            print(f"Created persistent container: {CONTAINER_NAME}")
+        else:
+            print(f"Failed to create container: {CONTAINER_NAME}")
+
+    except Exception as e:
+        print(f"Error setting up persistent container: {e}")
+
+
+async def cleanup_container():
+    """Clean up persistent container"""
+    try:
+        # Stop and remove container
+        for cmd in [['podman', 'stop', CONTAINER_NAME], ['podman', 'rm', CONTAINER_NAME]]:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            await process.communicate()
+    except Exception:
+        pass  # ignore cleanup errors, i dont care what they say lol
+
+
+async def execute_lua_code(message, lua_code, existing_response=None):
+    """Execute Lua code using persistent Podman container"""
+    try:
+        exec_cmd = ['podman', 'exec', '-i', CONTAINER_NAME, 'python', 'run_lua.py']
+
+        process = await asyncio.create_subprocess_exec(
+            *exec_cmd,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
@@ -157,7 +201,7 @@ async def execute_lua_code(message, lua_code, existing_response=None):
         error = stderr.decode().strip() if stderr else ""
 
         if error:
-            # Clean up Lua error messages
+            # make lua errors more readable
             clean_error = []
             for line in error.split('\n'):
                 if 'stdin:' in line:
@@ -207,7 +251,7 @@ async def execute_lua_code(message, lua_code, existing_response=None):
 async def send_or_edit_response(message, embed, existing_response=None, file=None):
     """Send new response or edit existing one"""
     if existing_response:
-        # Always delete and recreate when there's a file involved (either new file or previous had file)
+        # always delete and recreate when there's a file involved because stupid discord doesnt let me edit files
         if file or (existing_response.attachments):
             try:
                 await existing_response.delete()
@@ -292,17 +336,21 @@ async def help_command(ctx):
 async def on_command_error(ctx, error):
     """Handle command errors silently"""
     if isinstance(error, commands.CommandNotFound):
-        # Silently ignore command not found errors
+        # silently ignore command not found errors, i want to keep it clean
         return
-    # Log other errors
+    # log other errors
     print(f"Command error: {error}")
 
 
-# Run the bot
+# run the code :3
 if __name__ == "__main__":
     token = os.getenv('DISCORD_BOT_TOKEN')
     if not token:
         print("Error: DISCORD_BOT_TOKEN not found in .env file")
         exit(1)
 
-    bot.run(token)
+    try:
+        bot.run(token)
+    finally:
+        # Cleanup on exit
+        asyncio.run(cleanup_container())
