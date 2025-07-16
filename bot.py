@@ -3,6 +3,8 @@ from discord.ext import commands
 import asyncio
 import re
 import os
+import signal
+import atexit
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -12,12 +14,89 @@ intents.message_content = True
 bot = commands.Bot(command_prefix='~', intents=intents, help_command=None)
 
 message_responses = {}
+container_id = None
+container_lock = asyncio.Lock()
+
+
+async def create_persistent_container():
+    """Create a single persistent container"""
+    global container_id
+
+    try:
+        # Remove any existing container
+        await asyncio.create_subprocess_exec(
+            'podman', 'rm', '-f', 'lua-bot-persistent',
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL
+        )
+
+        print("Creating persistent container...")
+
+        # Create new persistent container
+        process = await asyncio.create_subprocess_exec(
+            'podman', 'run', '-d', '--name', 'lua-bot-persistent',
+            '--memory=64m', '--memory-swap=96m', '--cpus=0.64',
+            '--network=none', '--user=botuser', '--read-only',
+            'lua-bot', 'sleep', 'infinity',
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+
+        stdout, stderr = await process.communicate()
+
+        if process.returncode == 0:
+            container_id = stdout.decode().strip()
+            print(f"Persistent container created: {container_id[:12]}")
+            return True
+        else:
+            print(f"Failed to create persistent container: {stderr.decode()}")
+            return False
+
+    except Exception as e:
+        print(f"Error creating persistent container: {e}")
+        return False
+
+
+async def cleanup_container():
+    """Clean up the persistent container"""
+    global container_id
+
+    if container_id:
+        print("Cleaning up persistent container...")
+        try:
+            await asyncio.create_subprocess_exec(
+                'podman', 'rm', '-f', container_id,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL
+            )
+            print("Container cleanup complete")
+        except Exception as e:
+            print(f"Error cleaning up container: {e}")
+        finally:
+            container_id = None
+
+
+def signal_handler(signum, frame):
+    """Handle shutdown signals"""
+    print(f"\nReceived signal {signum}, shutting down...")
+    asyncio.create_task(cleanup_container())
+    exit(0)
+
+
+# Register signal handlers and exit cleanup
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+atexit.register(lambda: asyncio.run(cleanup_container()))
 
 
 @bot.event
 async def on_ready():
     print(f'{bot.user} has connected to Discord!')
     await ensure_podman_image()
+
+    # Create persistent container
+    if not await create_persistent_container():
+        print("Failed to create persistent container. Bot may not work properly.")
 
 
 @bot.event
@@ -123,85 +202,89 @@ async def create_output_file(content, filename="output.txt"):
 
 
 async def execute_lua_code(message, lua_code, existing_response=None):
-    """Execute Lua code using Podman"""
-    try:
-        podman_cmd = [
-            'podman', 'run', '--rm', '-i',
-            '--memory=64m', '--memory-swap=96m', '--cpus=0.64',
-            '--network=none', '--user=botuser', '--read-only',
-            'lua-bot'
-        ]
+    """Execute Lua code using the persistent Podman container"""
+    global container_id
 
-        process = await asyncio.create_subprocess_exec(
-            *podman_cmd,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
+    if not container_id:
+        embed = discord.Embed(
+            title="System Error", description="Persistent container not available", color=0xFF4444)
+        return await send_or_edit_response(message, embed, existing_response)
 
+    # Use lock to prevent concurrent executions from interfering
+    async with container_lock:
         try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(input=lua_code.encode()),
-                timeout=5.0
+            # Execute code in the persistent container
+            process = await asyncio.create_subprocess_exec(
+                'podman', 'exec', '-i', container_id, 'python', 'run_lua.py',
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
             )
-        except asyncio.TimeoutError:
+
             try:
-                process.kill()
-                await process.wait()
-            except:
-                pass
-            embed = await create_embed("Execution Timeout", "Code execution exceeded 5 second limit", 0xFF4444, "")
-            return await send_or_edit_response(message, embed, existing_response)
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(input=lua_code.encode()),
+                    timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                try:
+                    # Kill the exec process, but keep container alive
+                    process.kill()
+                    await process.wait()
+                except:
+                    pass
+                embed = await create_embed("Execution Timeout", "Code execution exceeded 5 second limit", 0xFF4444, "")
+                return await send_or_edit_response(message, embed, existing_response)
 
-        output = stdout.decode().strip() if stdout else ""
-        error = stderr.decode().strip() if stderr else ""
+            output = stdout.decode().strip() if stdout else ""
+            error = stderr.decode().strip() if stderr else ""
 
-        if error:
-            # Clean up Lua error messages
-            clean_error = []
-            for line in error.split('\n'):
-                if 'stdin:' in line:
-                    parts = line.split(':', 2)
-                    if len(parts) >= 3:
-                        clean_error.append(
-                            f"line {parts[1]}: {parts[2].strip()}")
+            if error:
+                # Clean up Lua error messages
+                clean_error = []
+                for line in error.split('\n'):
+                    if 'stdin:' in line:
+                        parts = line.split(':', 2)
+                        if len(parts) >= 3:
+                            clean_error.append(
+                                f"line {parts[1]}: {parts[2].strip()}")
+                        elif line.strip():
+                            clean_error.append(line)
                     elif line.strip():
                         clean_error.append(line)
-                elif line.strip():
-                    clean_error.append(line)
 
-            final_error = '\n'.join(clean_error) if clean_error else error
-            error_lines = final_error.count('\n') + 1 if final_error else 0
+                final_error = '\n'.join(clean_error) if clean_error else error
+                error_lines = final_error.count('\n') + 1 if final_error else 0
 
-            if len(final_error) > 1024 or error_lines > 64:
-                embed = await create_embed("Lua Error", "Error output too long, see attached file", 0xFF8C00, "")
-                file = await create_output_file(final_error, "error.txt")
-                return await send_or_edit_response(message, embed, existing_response, file)
+                if len(final_error) > 1024 or error_lines > 64:
+                    embed = await create_embed("Lua Error", "Error output too long, see attached file", 0xFF8C00, "")
+                    file = await create_output_file(final_error, "error.txt")
+                    return await send_or_edit_response(message, embed, existing_response, file)
+                else:
+                    embed = await create_embed("Lua Error", final_error, 0xFF8C00)
+                    return await send_or_edit_response(message, embed, existing_response)
+            elif output:
+                output_lines = output.count('\n') + 1 if output else 0
+
+                if len(output) > 1024 or output_lines > 64:
+                    embed = await create_embed("Lua Output", "Output too long, see attached file", 0x44FF44, "")
+                    file = await create_output_file(output, "output.txt")
+                    return await send_or_edit_response(message, embed, existing_response, file)
+                else:
+                    embed = await create_embed("Lua Output", output, 0x44FF44)
+                    return await send_or_edit_response(message, embed, existing_response)
             else:
-                embed = await create_embed("Lua Error", final_error, 0xFF8C00)
+                embed = await create_embed("Execution Complete", "", 0xFFD700)
                 return await send_or_edit_response(message, embed, existing_response)
-        elif output:
-            output_lines = output.count('\n') + 1 if output else 0
 
-            if len(output) > 1024 or output_lines > 64:
-                embed = await create_embed("Lua Output", "Output too long, see attached file", 0x44FF44, "")
-                file = await create_output_file(output, "output.txt")
-                return await send_or_edit_response(message, embed, existing_response, file)
-            else:
-                embed = await create_embed("Lua Output", output, 0x44FF44)
-                return await send_or_edit_response(message, embed, existing_response)
-        else:
-            embed = await create_embed("Execution Complete", "", 0xFFD700)
+        except FileNotFoundError:
+            embed = discord.Embed(
+                title="Podman Error", description="Podman not found. Please install Podman.", color=0xFF4444)
             return await send_or_edit_response(message, embed, existing_response)
-
-    except FileNotFoundError:
-        embed = discord.Embed(
-            title="Podman Error", description="Podman not found. Please install Podman.", color=0xFF4444)
-        return await send_or_edit_response(message, embed, existing_response)
-    except Exception as e:
-        embed = discord.Embed(
-            title="System Error", description=f"System Error: {str(e)}", color=0xFF4444)
-        return await send_or_edit_response(message, embed, existing_response)
+        except Exception as e:
+            embed = discord.Embed(
+                title="System Error", description=f"System Error: {str(e)}", color=0xFF4444)
+            return await send_or_edit_response(message, embed, existing_response)
 
 
 async def send_or_edit_response(message, embed, existing_response=None, file=None):
@@ -305,4 +388,10 @@ if __name__ == "__main__":
         print("Error: DISCORD_BOT_TOKEN not found in .env file")
         exit(1)
 
-    bot.run(token)
+    try:
+        bot.run(token)
+    except KeyboardInterrupt:
+        print("\nBot interrupted by user")
+    finally:
+        if container_id:
+            asyncio.run(cleanup_container())

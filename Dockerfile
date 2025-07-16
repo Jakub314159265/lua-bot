@@ -20,4 +20,5 @@ RUN chmod 755 /home/botuser/run_lua.py
 
 USER botuser
 
-ENTRYPOINT ["python", "run_lua.py"]
+# Default to sleep infinity for persistent containers
+CMD ["sleep", "infinity"]
