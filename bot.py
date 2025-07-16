@@ -174,7 +174,8 @@ async def cleanup_container():
 async def execute_lua_code(message, lua_code, existing_response=None):
     """Execute Lua code using persistent Podman container"""
     try:
-        exec_cmd = ['podman', 'exec', '-i', CONTAINER_NAME, 'python', 'run_lua.py']
+        exec_cmd = ['podman', 'exec', '-i',
+                    CONTAINER_NAME, 'python', 'run_lua.py']
 
         process = await asyncio.create_subprocess_exec(
             *exec_cmd,
