@@ -42,8 +42,17 @@ def execute_lua_code(lua_code):
                 status = coroutine.status,
                 yield = coroutine.yield
             }
-
-            -- Keep only safe string and math functions
+            
+            -- Somone told me that gsub can be dangerous when it can be used on functions so...
+            local function safe_gsub(s, pattern, repl, n)
+                local t = type(repl)
+                if t ~= "string" and t ~= "table" then
+                    error("gsub: replacement must be string or table, functions not allowed")
+                end
+                return string.gsub(s, pattern, repl, n)
+            end
+            
+            -- Keep only safe string functions
             string = {
                 byte = string.byte,
                 char = string.char,
@@ -55,7 +64,9 @@ def execute_lua_code(lua_code):
                 rep = string.rep,
                 reverse = string.reverse,
                 sub = string.sub,
-                upper = string.upper
+                upper = string.upper,
+                gmatch = string.gmatch,
+                gsub = safe_gsub
             }
 
             -- Set up output capture
