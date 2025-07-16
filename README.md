@@ -5,7 +5,7 @@ A Discord bot that runs Lua code safely using Podman and Lupa.
 ## Features
 
 - Runs Lua code in a sandbox (no file/network/system access)
-- 5 second timeout, 64MB memory limit
+- 10 second timeout (can be changed by `TIMEOUT` constant), 64MB memory limit
 - Supports most standard Lua functions: math, string, table, coroutine, utf8, print
 
 ## Setup
@@ -61,7 +61,7 @@ print(string.upper("lua"))
 - No network access
 - No file system access
 - Limited memory (64MB) and CPU (0.25 cores)
-- Execution timeout = 5 seconds
+- Execution timeout = 10 seconds (can be changed)
 - Sandboxed Lua environment with restricted functions
 
 ## Example
