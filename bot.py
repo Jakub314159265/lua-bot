@@ -25,10 +25,10 @@ async def on_message(message):
     if message.author == bot.user:
         return
 
-    # Handle ~~ prefix before processing commands to avoid CommandNotFound errors
+    # handle ~~ prefix
     if message.content.strip().startswith('~~'):
         await process_message(message)
-        return  # Don't process as command
+        return  # don't process as command
 
     await process_message(message)
     await bot.process_commands(message)
@@ -74,7 +74,7 @@ async def delete_response(message_id, channel):
 
 async def process_message(message, existing_response=None):
     """Process message for Lua code execution"""
-    # Handle ~~ prefix
+    # handle ~~ prefix
     if message.content.strip().startswith('~~'):
         code = message.content.strip()[2:].lstrip()
         if code:
@@ -85,11 +85,11 @@ async def process_message(message, existing_response=None):
             await delete_response(message.id, message.channel)
         return
 
-    # Handle ```code``` blocks (with optional 'lua' keyword)
+    # handle ```code``` blocks
     matches = re.findall(r"%```(?:lua\s*)?(.*?)```",
                          message.content, re.DOTALL | re.IGNORECASE)
 
-    # Handle %`code` blocks (with optional 'lua' keyword)
+    # Handle %`code` blocks
     if not matches:
         matches = re.findall(r"%`(?:lua\s*)?(.*?)`",
                              message.content, re.DOTALL | re.IGNORECASE)
@@ -101,7 +101,7 @@ async def process_message(message, existing_response=None):
                 response = await execute_lua_code(message, lua_code, existing_response)
                 if response:
                     message_responses[message.id] = response.id
-                break  # Only execute first code block
+                break
     elif existing_response:
         await delete_response(message.id, message.channel)
 
@@ -157,7 +157,7 @@ async def execute_lua_code(message, lua_code, existing_response=None):
         error = stderr.decode().strip() if stderr else ""
 
         if error:
-            # Clean up Lua error messages
+            # make error more readable
             clean_error = []
             for line in error.split('\n'):
                 if 'stdin:' in line:
@@ -207,7 +207,7 @@ async def execute_lua_code(message, lua_code, existing_response=None):
 async def send_or_edit_response(message, embed, existing_response=None, file=None):
     """Send new response or edit existing one"""
     if existing_response:
-        # Always delete and recreate when there's a file involved (either new file or previous had file)
+        # delete and recreate if there's a file involved
         if file or (existing_response.attachments):
             try:
                 await existing_response.delete()
@@ -292,13 +292,13 @@ async def help_command(ctx):
 async def on_command_error(ctx, error):
     """Handle command errors silently"""
     if isinstance(error, commands.CommandNotFound):
-        # Silently ignore command not found errors
+        # silently ignore command not found errors
         return
-    # Log other errors
+    # log other errors
     print(f"Command error: {error}")
 
 
-# Run the bot
+# run the code :3
 if __name__ == "__main__":
     token = os.getenv('DISCORD_BOT_TOKEN')
     if not token:

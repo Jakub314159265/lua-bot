@@ -7,10 +7,10 @@ def execute_lua_code(lua_code):
     result = {"output": "", "error": None}
 
     try:
-        # Create Lua runtime
+        # create Lua runtime
         lua = LuaRuntime(unpack_returned_tuples=True)
 
-        # Set up secure Lua environment with extensive restrictions
+        # secure Lua environment
         lua.execute("""
             -- Clear all dangerous globals
             os = nil
@@ -72,10 +72,9 @@ def execute_lua_code(lua_code):
             end
         """)
 
-        # Execute user code
+        # execute code
         lua_result = lua.execute(lua_code)
 
-        # Get captured output
         output = lua.eval("get_output()")
         if output and output.strip():
             result["output"] = output
@@ -98,7 +97,7 @@ def main():
         result = execute_lua_code(lua_code)
 
         if result["error"]:
-            print(result['error'], file=sys.stderr)
+            print(result['error'], file=sys.stderr) # writes them in stderr so i may use different color
         elif result["output"]:
             print(result["output"])
 
