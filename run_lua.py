@@ -39,8 +39,11 @@ def execute_lua_code(lua_code):
             coroutine = {
                 create = coroutine.create,
                 resume = coroutine.resume,
+                running = coroutine.running,
+                wrap = coroutine.wrap,
                 status = coroutine.status,
                 yield = coroutine.yield
+                close = coroutine.close
             }
             
             -- Somone told me that gsub can be dangerous when it can be used on functions so...
