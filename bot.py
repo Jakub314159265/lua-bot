@@ -159,6 +159,14 @@ async def setup_container():
         returncode, _, stderr = await run_podman_command(create_cmd)
         if returncode == 0:
             print(f"Created container: {CONTAINER_NAME}")
+            
+            # start the container
+            start_returncode, _, start_stderr = await run_podman_command(['podman', 'start', CONTAINER_NAME])
+            if start_returncode == 0:
+                print(f"Started container: {CONTAINER_NAME}")
+            else:
+                print(f"Failed to start container: {CONTAINER_NAME}")
+                print(f"Start error: {start_stderr}")
         else:
             print(f"Failed to create container: {CONTAINER_NAME}")
             print(f"Error: {stderr}")
@@ -175,9 +183,43 @@ async def cleanup_container():
             print(f"Cleanup warning for {' '.join(cmd)}: {stderr}")
 
 
+async def ensure_container_running(): # todo: merge this and setup_container 
+    """Ensure container is running before executing code"""
+    try:
+        # check if it even exists and is running
+        inspect_cmd = ['podman', 'inspect', '--format', '{{.State.Running}}', CONTAINER_NAME]
+        returncode, stdout, stderr = await run_podman_command(inspect_cmd, ignore_errors=True)
+        
+        if returncode != 0:
+            # it doesnt exist
+            await setup_container()
+            return True
+        
+        is_running = stdout.strip().lower() == 'true'
+        if not is_running:
+            # not running
+            start_returncode, _, start_stderr = await run_podman_command(['podman', 'start', CONTAINER_NAME])
+            if start_returncode != 0:
+                print(f"Failed to start container: {start_stderr}")
+                # recreate if fails
+                await setup_container()
+            return True
+        
+        return True
+    except Exception as e:
+        print(f"Error ensuring container is running: {e}")
+        return False
+
+
 async def execute_lua_code(message, lua_code, existing_response=None):
     """Execute Lua code using Podman container"""
     try:
+        # Ensure container is running before executing
+        if not await ensure_container_running():
+            embed = discord.Embed(
+                title="Container Error", description="Failed to start execution container", color=0xFF4444)
+            return await send_or_edit_response(message, embed, existing_response)
+
         exec_cmd = ['podman', 'exec', '-i',
                     CONTAINER_NAME, 'python', 'run_lua.py']
 
