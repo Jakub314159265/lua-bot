@@ -8,7 +8,9 @@ def execute_lua_code(lua_code):
 
     try:
         # Create Lua runtime
-        lua = LuaRuntime(unpack_returned_tuples=True)
+
+        lua = LuaRuntime(unpack_returned_tuples=True,
+                         register_eval=False, register_builtins=False)
 
         # set up Lua 'preamble' (like in LaTeX lmao)
         lua.execute("""
@@ -99,7 +101,8 @@ def main():
         result = execute_lua_code(lua_code)
 
         if result["error"]:
-            print(result['error'], file=sys.stderr) # print it in stderr to make it an error
+            # print it in stderr to make it an error
+            print(result['error'], file=sys.stderr)
         elif result["output"]:
             print(result["output"])
 
