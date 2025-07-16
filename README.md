@@ -30,7 +30,12 @@ A Discord bot that runs Lua code safely using Podman and Lupa.
    sudo pacman -S podman
    ```
 
-4. Start the bot:
+4. It is recommended to build the Podman image manually by running:
+   ```bash
+   podman build -t lua-bot-p-img .
+   ```
+
+5. Start the bot:
    ```
    python bot.py
    ```
