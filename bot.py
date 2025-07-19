@@ -3,6 +3,7 @@ from discord.ext import commands
 import asyncio
 import re
 import os
+import json
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -10,18 +11,51 @@ load_dotenv()
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix='~', intents=intents, help_command=None)
+MAX_FILE_SIZE = 8 * 1024 * 1024
 
 message_responses = {}
 CONTAINER_NAME = "lua-bot-p"
 IMAGE_NAME = "lua-bot-p-img"
+PREAMBLE_FILE = "preamble.json"
 
 TIMEOUT = 10
 
-# todo: define colors as constants
+# preamble as a list
+preamble_code = []
+
+# colors
+COLOR_SYSTEM_ERROR = 0xFF4444
+COLOR_SUCCESS = 0x44FF44
+COLOR_ERROR = 0xFF8C00
+COLOR_INFO = 0x5865F2
+COLOR_EXECUTION_COMPLETE = 0xFFD700
+
+
+async def load_preamble():
+    """Load preamble from file"""
+    global preamble_code
+    try:
+        if os.path.exists(PREAMBLE_FILE):
+            with open(PREAMBLE_FILE, 'r') as f:
+                preamble_code = json.load(f)
+    except Exception as e:
+        print(f"Error loading preamble: {e}")
+        preamble_code = []
+
+
+async def save_preamble():
+    """Save preamble to file"""
+    try:
+        with open(PREAMBLE_FILE, 'w') as f:
+            json.dump(preamble_code, f, indent=2)
+    except Exception as e:
+        print(f"Error saving preamble: {e}")
+
 
 @bot.event
 async def on_ready():
     print(f'{bot.user} has connected!')
+    await load_preamble()
     await setup_container()
 
 
@@ -123,7 +157,14 @@ async def create_embed(title, description, color, language="lua"):
 async def create_output_file(content, filename="output.txt"):
     """Create a Discordd message with file"""
     import io
-    file_content = io.BytesIO(content.encode('utf-8'))
+    encoded = content.encode('utf-8')
+    if len(encoded) > MAX_FILE_SIZE:
+        # Truncate and add a warning
+        truncated = encoded[:MAX_FILE_SIZE - 100]
+        truncated += b"\n\n[...output truncated due to Discord file size limit...]"
+        file_content = io.BytesIO(truncated)
+    else:
+        file_content = io.BytesIO(encoded)
     return discord.File(file_content, filename=filename)
 
 
@@ -159,7 +200,7 @@ async def setup_container():
         returncode, _, stderr = await run_podman_command(create_cmd)
         if returncode == 0:
             print(f"Created container: {CONTAINER_NAME}")
-            
+
             # start the container
             start_returncode, _, start_stderr = await run_podman_command(['podman', 'start', CONTAINER_NAME])
             if start_returncode == 0:
@@ -177,24 +218,25 @@ async def setup_container():
 
 async def cleanup_container():
     """Clean up container"""
-    for cmd in [['podman', 'stop', CONTAINER_NAME], ['podman', 'rm', CONTAINER_NAME]]:
+    for cmd in [['podman', 'stop', '--timeout=1', CONTAINER_NAME], ['podman', 'rm', CONTAINER_NAME]]:
         returncode, _, stderr = await run_podman_command(cmd, ignore_errors=True)
         if returncode != 0 and "no such container" not in stderr.lower():
             print(f"Cleanup warning for {' '.join(cmd)}: {stderr}")
 
 
-async def ensure_container_running(): # todo: merge this and setup_container 
+async def ensure_container_running():  # todo: merge this and setup_container
     """Ensure container is running before executing code"""
     try:
         # check if it even exists and is running
-        inspect_cmd = ['podman', 'inspect', '--format', '{{.State.Running}}', CONTAINER_NAME]
+        inspect_cmd = ['podman', 'inspect', '--format',
+                       '{{.State.Running}}', CONTAINER_NAME]
         returncode, stdout, stderr = await run_podman_command(inspect_cmd, ignore_errors=True)
-        
+
         if returncode != 0:
             # it doesnt exist
             await setup_container()
             return True
-        
+
         is_running = stdout.strip().lower() == 'true'
         if not is_running:
             # not running
@@ -204,7 +246,7 @@ async def ensure_container_running(): # todo: merge this and setup_container
                 # recreate if fails
                 await setup_container()
             return True
-        
+
         return True
     except Exception as e:
         print(f"Error ensuring container is running: {e}")
@@ -217,8 +259,12 @@ async def execute_lua_code(message, lua_code, existing_response=None):
         # Ensure container is running before executing
         if not await ensure_container_running():
             embed = discord.Embed(
-                title="Container Error", description="Failed to start execution container", color=0xFF4444)
+                title="Container Error", description="Failed to start execution container", color=COLOR_SYSTEM_ERROR)
             return await send_or_edit_response(message, embed, existing_response)
+
+        # combine preamble and users code
+        full_code = '\n'.join(preamble_code) + '\n' + \
+            lua_code if preamble_code else lua_code
 
         exec_cmd = ['podman', 'exec', '-i',
                     CONTAINER_NAME, 'python', 'run_lua.py']
@@ -232,7 +278,7 @@ async def execute_lua_code(message, lua_code, existing_response=None):
 
         try:
             stdout, stderr = await asyncio.wait_for(
-                process.communicate(input=lua_code.encode()),
+                process.communicate(input=full_code.encode()),
                 timeout=TIMEOUT
             )
         except asyncio.TimeoutError:
@@ -241,7 +287,7 @@ async def execute_lua_code(message, lua_code, existing_response=None):
                 await process.wait()
             except:
                 pass
-            embed = await create_embed("Execution Timeout", f"Code execution exceeded {TIMEOUT} second limit", 0xFF4444, "")
+            embed = await create_embed("Execution Timeout", f"Code execution exceeded {TIMEOUT} second limit", COLOR_SYSTEM_ERROR, "")
             return await send_or_edit_response(message, embed, existing_response)
 
         output = stdout.decode().strip() if stdout else ""
@@ -269,33 +315,33 @@ async def execute_lua_code(message, lua_code, existing_response=None):
 
             # i am deeply sorry if someone needs to read this code :u
             if len(final_error) > 1024 or error_lines > 64:
-                embed = await create_embed("Lua Error", "Error output too long, see attached file", 0xFF8C00, "")
+                embed = await create_embed("Lua Error", "Errors too long, see attached file", COLOR_ERROR, "")
                 file = await create_output_file(final_error, "error.txt")
                 return await send_or_edit_response(message, embed, existing_response, file)
             else:
-                embed = await create_embed("Lua Error", final_error, 0xFF8C00)
+                embed = await create_embed("Lua Error", final_error, COLOR_ERROR)
                 return await send_or_edit_response(message, embed, existing_response)
         elif output:
             output_lines = output.count('\n') + 1 if output else 0
 
             if len(output) > 1024 or output_lines > 64:
-                embed = await create_embed("Lua Output", "Output too long, see attached file", 0x44FF44, "")
+                embed = await create_embed("Lua Output", "Output too long, see attached file", COLOR_SUCCESS, "")
                 file = await create_output_file(output, "output.txt")
                 return await send_or_edit_response(message, embed, existing_response, file)
             else:
-                embed = await create_embed("Lua Output", output, 0x44FF44)
+                embed = await create_embed("Lua Output", output, COLOR_SUCCESS)
                 return await send_or_edit_response(message, embed, existing_response)
         else:
-            embed = await create_embed("Execution Complete", "", 0xFFD700)
+            embed = await create_embed("Execution Complete", "", COLOR_EXECUTION_COMPLETE)
             return await send_or_edit_response(message, embed, existing_response)
 
     except FileNotFoundError:
         embed = discord.Embed(
-            title="Podman Error", description="Podman not found. Please install Podman.", color=0xFF4444)
+            title="Podman Error", description="Podman not found. Please install Podman.", color=COLOR_SYSTEM_ERROR)
         return await send_or_edit_response(message, embed, existing_response)
     except Exception as e:
         embed = discord.Embed(
-            title="System Error", description=f"System Error: {str(e)}", color=0xFF4444)
+            title="System Error", description=f"System Error: {str(e)}", color=COLOR_SYSTEM_ERROR)
         return await send_or_edit_response(message, embed, existing_response)
 
 
@@ -343,18 +389,109 @@ async def ensure_podman_image():
         print(f"Error with Podman setup: {e}")
 
 
+@bot.command(name='add')
+@commands.has_permissions(manage_messages=True)
+async def add_preamble(ctx, *, code):
+    """Add code to preamble"""
+
+    # strip code of whitespaces
+    clean_code = code.strip()
+
+    # remove triple backtics
+    if clean_code.startswith('```') and clean_code.endswith('```'):
+        clean_code = clean_code[3:-3].strip()
+
+    # see above but for single backtics
+    elif clean_code.startswith('`') and clean_code.endswith('`') and clean_code.count('`') == 2:
+        clean_code = clean_code[1:-1].strip()
+
+    if not clean_code:
+        embed = discord.Embed(
+            title="Error", description="Please provide code to add", color=COLOR_ERROR)
+        await ctx.send(embed=embed)
+        return
+
+    preamble_code.append(clean_code)
+    await save_preamble()
+
+    embed = discord.Embed(
+        title="Preamble Updated",
+        description=f"Added code snippet #{len(preamble_code)-1}",
+        color=COLOR_SUCCESS
+    )
+    embed.add_field(name="Added Code",
+                    value=f"```lua\n{clean_code}\n```", inline=False)
+    await ctx.send(embed=embed)
+
+
+@bot.command(name='show')
+async def show_preamble(ctx):
+    """Show current preamble code"""
+    if not preamble_code:
+        embed = discord.Embed(
+            title="Preamble", description="No preamble code set", color=COLOR_EXECUTION_COMPLETE)
+        await ctx.send(embed=embed)
+        return
+
+    embed = discord.Embed(title="Current Preamble", color=COLOR_INFO)
+
+    for i, code in enumerate(preamble_code):
+        embed.add_field(
+            name=f"#{i}",
+            value=f"```lua\n{code}\n```",
+            inline=False
+        )
+
+    await ctx.send(embed=embed)
+
+
+@bot.command(name='del')
+@commands.has_permissions(manage_messages=True)
+async def delete_preamble(ctx, num: int):
+    """Delete preamble code by number"""
+    if not preamble_code:
+        embed = discord.Embed(
+            title="Error", description="No preamble code to delete", color=COLOR_ERROR)
+        await ctx.send(embed=embed)
+        return
+
+    if num < 0 or num >= len(preamble_code):
+        embed = discord.Embed(
+            title="Error",
+            description=f"Invalid number. Use 0-{len(preamble_code)-1}",
+            color=COLOR_ERROR
+        )
+        await ctx.send(embed=embed)
+        return
+
+    deleted_code = preamble_code.pop(num)
+    await save_preamble()
+
+    embed = discord.Embed(title="Preamble Updated",
+                          description=f"Deleted snippet #{num}", color=COLOR_EXECUTION_COMPLETE)
+    embed.add_field(name="Deleted Code",
+                    value=f"```lua\n{deleted_code}\n```", inline=False)
+    await ctx.send(embed=embed)
+
+
 @bot.command(name='help')
 async def help_command(ctx):
     """Show help information"""  # very pwetty format isnt it :3
     embed = discord.Embed(
         title="Lua Bot Help",
         description="Execute Lua code safely in Discord!",
-        color=0x5865F2
+        color=COLOR_INFO
     )
 
     embed.add_field(
         name="Usage",
         value="• **Triple backticks:** ` %```<your_code>``` ` or single backticks\n• **Command:** `~~<your_code>`",
+        inline=False
+    )
+
+    embed.add_field(
+        name="Preamble Commands",
+        value="• `~add <code>` - Add permanent code\n• `~show` - Show current preamble\n• `~del <num>` - Delete preamble by number",
         inline=False
     )
 
@@ -378,6 +515,14 @@ async def on_command_error(ctx, error):
     """Handle command errors silently"""
     if isinstance(error, commands.CommandNotFound):
         # silently ignore command not found errors, i want to keep it clean
+        return
+    elif isinstance(error, commands.MissingPermissions):
+        embed = discord.Embed(
+            title="Permission Denied",
+            description="You need the **Manage Messages** permission to use this command.",
+            color=COLOR_ERROR
+        )
+        await ctx.send(embed=embed)
         return
     # log other errors
     print(f"Command error: {error}")

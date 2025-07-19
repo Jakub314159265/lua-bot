@@ -44,6 +44,7 @@ A Discord bot that runs Lua code safely using Podman and Lupa.
 
 - Wrap code in  ` %```<code> ``` `
 - or: `~~ <code>`
+- `~help` for help
 
 ## Example of `~~` usage
 
@@ -59,6 +60,7 @@ print(string.upper("lua"))
 - **String**: `string.find`, `string.gsub`, `string.sub`, etc.
 - **Table**: `table.insert`, `table.remove`, `table.sort`, etc.
 - **Basic**: `print`, `tonumber`, `tostring`, `pairs`, `ipairs`, etc.
+- `os.clock`, `os.time`, `os.date`
 
 ## Security
 

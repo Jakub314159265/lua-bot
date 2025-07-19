@@ -10,3 +10,4 @@ test_*
 .vscode/
 .pytest*
 *.tar
+preamble.json

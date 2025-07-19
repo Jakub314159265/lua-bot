@@ -8,14 +8,12 @@ def execute_lua_code(lua_code):
 
     try:
         # Create Lua runtime
-
         lua = LuaRuntime(unpack_returned_tuples=True,
                          register_eval=False, register_builtins=False)
 
         # set up Lua 'preamble' (like in LaTeX lmao)
         lua.execute("""
             -- Clear all dangerous globals
-            os = nil
             io = nil
             file = nil
             package = nil
@@ -34,8 +32,15 @@ def execute_lua_code(lua_code):
             debug = nil
             collectgarbage = nil
             _G = nil
+            
+            -- restrict os
+            os = {
+                time = os.time,
+                date = os.date,
+                clock = os.clock
+            }
 
-            -- Restrict coroutine functions
+            -- restrict coroutine
             coroutine = {
                 create = coroutine.create,
                 resume = coroutine.resume,
