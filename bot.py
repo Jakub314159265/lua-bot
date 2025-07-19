@@ -266,60 +266,71 @@ async def execute_lua_code(message, lua_code, existing_response=None):
         full_code = '\n'.join(preamble_code) + '\n' + \
             lua_code if preamble_code else lua_code
 
-        exec_cmd = ['podman', 'exec', '-i',
-                    CONTAINER_NAME, 'python', 'run_lua.py']
+        output = ""
+        error = ""
+        exit_flag = False
 
-        process = await asyncio.create_subprocess_exec(
-            *exec_cmd,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
+        while (output == "" and error == ""):
+            exec_cmd = ['podman', 'exec', '-i',
+                        CONTAINER_NAME, 'python', 'run_lua.py']
 
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                process.communicate(input=full_code.encode()),
-                timeout=TIMEOUT
+            process = await asyncio.create_subprocess_exec(
+                *exec_cmd,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
             )
-        except asyncio.TimeoutError:
-            try:
-                process.kill()
-                await process.wait()
-            except:
-                pass
-            embed = await create_embed("Execution Timeout", f"Code execution exceeded {TIMEOUT} second limit", COLOR_SYSTEM_ERROR, "")
-            return await send_or_edit_response(message, embed, existing_response)
 
-        output = stdout.decode().strip() if stdout else ""
-        error = stderr.decode().strip() if stderr else ""
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    process.communicate(input=full_code.encode()),
+                    timeout=TIMEOUT
+                )
+            except asyncio.TimeoutError:
+                try:
+                    process.kill()
+                    await process.wait()
+                except:
+                    pass
+                embed = await create_embed("Execution Timeout", f"Code execution exceeded {TIMEOUT} second limit", COLOR_SYSTEM_ERROR, "")
+                return await send_or_edit_response(message, embed, existing_response)
+
+            output = stdout.decode().strip() if stdout else ""
+            error = stderr.decode().strip() if stderr else ""
+
+            if output == "" and error == "":
+                full_code = '\n'.join(preamble_code) + '\nreturn ' + \
+                    lua_code if preamble_code else 'return ' + lua_code
+                if exit_flag:
+                    break
+                exit_flag = True
+            
+        if error is not "" and exit_flag:
+            error = ""
+            output = ""
 
         # black magic ends here
 
         if error:
-            # make lua errors more readable, in exchange this code is very unreadable
-            clean_error = []
-            for line in error.split('\n'):
-                if 'stdin:' in line:
-                    parts = line.split(':', 2)
-                    if len(parts) >= 3:
-                        clean_error.append(
-                            # i made it print 'Line: ' becayse my friends dont understand 'stdin: ' smh
-                            f"line {parts[1]}: {parts[2].strip()}")
-                    elif line.strip():
-                        clean_error.append(line)
-                elif line.strip():
-                    clean_error.append(line)
+            error_lines = error.count('\n') + 1 if error else 0
 
-            final_error = '\n'.join(clean_error) if clean_error else error
-            error_lines = final_error.count('\n') + 1 if final_error else 0
+            # Adjust error line numbers by subtracting preamble lines
+            if preamble_code:
+                preamble_lines = sum(code.count('\n') + 1 for code in preamble_code)
+                def adjust_line(match):
+                    orig_line = int(match.group(1))
+                    new_line = max(0, orig_line - preamble_lines - 1)
+                    return f":{new_line}:"
+                import re
+                error = re.sub(r":(\d+):", adjust_line, error)
 
             # i am deeply sorry if someone needs to read this code :u
-            if len(final_error) > 1024 or error_lines > 64:
+            if len(error) > 1024 or error_lines > 64:
                 embed = await create_embed("Lua Error", "Errors too long, see attached file", COLOR_ERROR, "")
-                file = await create_output_file(final_error, "error.txt")
+                file = await create_output_file(error, "error.txt")
                 return await send_or_edit_response(message, embed, existing_response, file)
             else:
-                embed = await create_embed("Lua Error", final_error, COLOR_ERROR)
+                embed = await create_embed("Lua Error", error, COLOR_ERROR)
                 return await send_or_edit_response(message, embed, existing_response)
         elif output:
             output_lines = output.count('\n') + 1 if output else 0

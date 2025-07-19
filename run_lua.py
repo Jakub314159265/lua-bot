@@ -98,7 +98,10 @@ def execute_lua_code(lua_code):
 
         # get captured output
         output = lua.eval("get_output()")
-        if output:
+        
+        if output and lua_result is not None:
+            result["output"] = output + "\n" + str(lua_result)
+        elif output:
             result["output"] = output
         elif lua_result is not None:
             result["output"] = str(lua_result)
