@@ -16,7 +16,7 @@ MAX_FILE_SIZE = 8 * 1024 * 1024
 message_responses = {}
 CONTAINER_NAME = "lua-bot-p"
 IMAGE_NAME = "lua-bot-p-img"
-PREAMBLE_FILE = "preamble.json"
+PREAMBLE_FILE = PREAMBLE_FILE = os.path.join(os.path.dirname(__file__), "preamble.json")
 
 TIMEOUT = 10
 
