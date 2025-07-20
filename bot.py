@@ -305,7 +305,7 @@ async def execute_lua_code(message, lua_code, existing_response=None):
                     break
                 exit_flag = True
             
-        if error is not "" and exit_flag:
+        if error != "" and exit_flag:
             error = ""
             output = ""
 
